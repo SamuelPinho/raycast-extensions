@@ -95,17 +95,21 @@ export async function getToken(): Promise<string> {
   if (staticToken) return staticToken;
 
   const existing = await client.getTokens();
-  if (existing?.accessToken) {
-    if (existing.refreshToken && existing.isExpired()) {
-      const { token_endpoint } = await discover();
-      const refreshed = await refreshTokens(
-        token_endpoint,
-        existing.refreshToken,
-      );
-      await client.setTokens(refreshed);
-      return refreshed.access_token;
-    }
+  // A valid (non-expired) access token is good to use as-is.
+  if (existing?.accessToken && !existing.isExpired()) {
     return existing.accessToken;
+  }
+  // The access token is missing or expired. Refresh it if we have a refresh
+  // token; otherwise fall through to a fresh PKCE flow. Returning the stale
+  // access token here would just 401 on the next API call.
+  if (existing?.refreshToken) {
+    const { token_endpoint } = await discover();
+    const refreshed = await refreshTokens(
+      token_endpoint,
+      existing.refreshToken,
+    );
+    await client.setTokens(refreshed);
+    return refreshed.access_token;
   }
 
   const { authorization_endpoint, token_endpoint } = await discover();

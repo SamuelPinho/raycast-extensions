@@ -1,5 +1,5 @@
 import { Clipboard, showHUD, showToast, Toast } from "@raycast/api";
-import { writeFile } from "node:fs/promises";
+import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,11 +24,14 @@ export async function copyImageToClipboard(
     style: Toast.Style.Animated,
     title: "Copying image…",
   });
+  // Declared outside the try so the finally block can clean it up regardless
+  // of where we exit.
+  let file: string | undefined;
   try {
     const res = await fetch(ref.imageUrl);
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
     const buffer = Buffer.from(await res.arrayBuffer());
-    const file = join(tmpdir(), `gather-${ref.id}.webp`);
+    file = join(tmpdir(), `gather-${ref.id}.webp`);
     await writeFile(file, buffer);
     await Clipboard.copy({ file });
     toast.hide();
@@ -37,5 +40,11 @@ export async function copyImageToClipboard(
     toast.style = Toast.Style.Failure;
     toast.title = "Couldn't copy image";
     toast.message = error instanceof Error ? error.message : String(error);
+  } finally {
+    // `Clipboard.copy` has read the file into the pasteboard by the time it
+    // resolves, so the temp file is no longer needed. Remove it to avoid
+    // accumulating orphaned gather-*.webp files in the temp dir. Best-effort:
+    // ignore errors (e.g. the write never happened on the failure path).
+    if (file) await unlink(file).catch(() => {});
   }
 }
